@@ -231,19 +231,21 @@ where
         }
 
         let revision = rsdp_mapping.revision();
-        let root_table_mapping = if revision == 0 {
-            /*
-             * We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
-             */
 
-            read_root_table!(RSDT, rsdt_address)
-        } else {
+        // in linux acpica implementation, when revision > 1 use
+        let root_table_mapping = if revision > 1 {
             /*
              * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
              * to 32 bits on x86.
              */
 
             read_root_table!(XSDT, xsdt_address)
+        } else {
+            /*
+             * We're running on ACPI Version 2.0+. We should use the 32-bit RSDT address.
+             */
+
+            read_root_table!(RSDT, rsdt_address)
         };
 
         Ok(Self { mapping: root_table_mapping, revision, handler })

@@ -5,7 +5,8 @@ use core::{mem, ops::Range, slice, str};
 const RSDP_V1_LENGTH: usize = 20;
 /// The total size in bytes of the RSDP fields introduced in ACPI 2.0.
 const RSDP_V2_EXT_LENGTH: usize = mem::size_of::<Rsdp>() - RSDP_V1_LENGTH;
-
+/// The size in bytes covered by the ACPI 2.0+ extended checksum (mirrors Linux ACPI_RSDP_XCHECKSUM_LENGTH).
+const RSDP_XCHECKSUM_LENGTH: usize = 36;
 /// The first structure found in ACPI. It just tells us where the RSDT is.
 ///
 /// On BIOS systems, it is either found in the first 1KiB of the Extended Bios Data Area, or between `0x000e0000`
@@ -116,9 +117,9 @@ impl Rsdp {
          * `self.length` doesn't exist on ACPI version 1.0, so we mustn't rely on it. Instead,
          * check for version 1.0 and use a hard-coded length instead.
          */
-        let length = if self.revision > 0 {
-            // For Version 2.0+, include the number of bytes specified by `length`
-            self.length as usize
+        let length = if self.revision > 1 {
+            //  For Version 2.0+, use the Linux's ACPI_RSDP_XCHECKSUM_LENGTH.
+            RSDP_XCHECKSUM_LENGTH
         } else {
             RSDP_V1_LENGTH
         };
