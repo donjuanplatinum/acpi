@@ -31,7 +31,7 @@ pub enum RsdpError {
 /// The size in bytes of the ACPI 1.0 RSDP.
 const RSDP_V1_LENGTH: usize = 20;
 /// The size in bytes covered by the ACPI 2.0+ extended checksum (mirrors Linux ACPI_RSDP_XCHECKSUM_LENGTH).
-const RSDP_XCHECKSUM_LENGTH: usize = 36;
+const RSDP_EXT_LENGTH: usize = 36;
 /// The first structure found in ACPI. It just tells us where the RSDT is.
 ///
 /// On BIOS systems, it is either found in the first 1KB of the Extended Bios Data Area, or between
@@ -87,7 +87,7 @@ impl Rsdp {
             // Map the search area for the RSDP followed by `RSDP_V2_EXT_LENGTH` bytes so an ACPI 1.0 RSDP at the
             // end of the area can be read as an `Rsdp` (which always has the size of an ACPI 2.0 RSDP)
             let mapping = unsafe {
-                handler.map_physical_region::<u8>(area.start, area.end - area.start + RSDP_V2_EXT_LENGTH)
+                handler.map_physical_region::<u8>(area.start, area.end - area.start + RSDP_EXT_LENGTH)
             };
 
             let extended_area_bytes =
@@ -140,16 +140,19 @@ impl Rsdp {
             return Err(RsdpError::InvalidOemId);
         }
 
-        /*
-         * `self.length` doesn't exist on ACPI version 1.0, so we mustn't rely on it. Instead,
-         * check for version 1.0 and use a hard-coded length instead.
+	/*
+         * The spec claims all RSDP revisions greater than `0` should have a valid `length` field,
+         * but also claims these fields are not valid unless `revision > 1`. Linux ignores the
+         * `length` field entirely and uses a length of `36` for checksum calculations for all
+         * tables with the extended fields.
+         *
+         * It's probably reasonable to say these checksum checks are of limited utility anyway.
          */
-        let length = if self.revision > 1 { RSDP_XCHECKSUM_LENGTH } else { RSDP_V1_LENGTH };
-
+        let length = if self.revision > 1 { RSDP_EXT_LENGTH } else { RSDP_V1_LENGTH };
         let bytes = unsafe { slice::from_raw_parts(self as *const Rsdp as *const u8, length) };
         let sum = bytes.iter().fold(0u8, |sum, &byte| sum.wrapping_add(byte));
 
-        if sum != 0 {
+	if sum != 0 {
             return Err(RsdpError::InvalidChecksum);
         }
 

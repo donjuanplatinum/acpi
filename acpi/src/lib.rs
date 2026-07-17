@@ -156,6 +156,8 @@ pub enum AcpiError {
 pub struct AcpiTables<H: AcpiHandler> {
     mapping: PhysicalMapping<H, SdtHeader>,
     revision: u8,
+    /// Size of each root-table entry in bytes: 4 for RSDT, 8 for XSDT.
+    root_table_entries: u8,
     handler: H,
 }
 
@@ -232,23 +234,24 @@ where
 
         let revision = rsdp_mapping.revision();
 
-        // in linux acpica implementation, when revision > 1 use
-        let root_table_mapping = if revision > 1 {
+        // Use XSDT if revision > 1 and the XSDT address is present (non-zero).
+        // Otherwise fall back to the RSDT. This matches Linux's ACPICA
+        // implementation in drivers/acpi/acpica/tbutils.c.
+        let (root_table_mapping, root_table_entries) = if revision > 1 && rsdp_mapping.xsdt_address() != 0 {
             /*
              * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
              * to 32 bits on x86.
              */
-
-            read_root_table!(XSDT, xsdt_address)
+            (read_root_table!(XSDT, xsdt_address), 8)
         } else {
             /*
-             * We're running on ACPI Version 2.0+. We should use the 32-bit RSDT address.
+             * We're running on ACPI Version 1.0, or on ACPI 2.0+ without a
+             * valid XSDT address. We should use the 32-bit RSDT address.
              */
-
-            read_root_table!(RSDT, rsdt_address)
+            (read_root_table!(RSDT, rsdt_address), 4)
         };
 
-        Ok(Self { mapping: root_table_mapping, revision, handler })
+        Ok(Self { mapping: root_table_mapping, revision, root_table_entries, handler })
     }
 
     /// The ACPI revision of the tables enumerated by this structure.
@@ -264,11 +267,7 @@ where
         let ptrs_bytes_len = self.mapping.region_length() - mem::size_of::<SdtHeader>();
         // SAFETY: `ptrs_virt_start` points to an array of `ptrs_bytes_len` bytes that lives as long as `self`.
         let ptrs_bytes = unsafe { core::slice::from_raw_parts(ptrs_virt_start, ptrs_bytes_len) };
-        let ptr_size = if self.revision == 0 {
-            4 // RSDT entry size
-        } else {
-            8 // XSDT entry size
-        };
+        let ptr_size = self.root_table_entries as usize;
 
         ptrs_bytes.chunks(ptr_size).map(|ptr_bytes_src| {
             // Construct a native pointer using as many bytes as required from `ptr_bytes_src` (note that ACPI is

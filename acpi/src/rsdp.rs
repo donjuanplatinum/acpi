@@ -113,22 +113,21 @@ impl Rsdp {
             return Err(AcpiError::RsdpInvalidOemId);
         }
 
-        /*
-         * `self.length` doesn't exist on ACPI version 1.0, so we mustn't rely on it. Instead,
-         * check for version 1.0 and use a hard-coded length instead.
-         */
-        let length = if self.revision > 1 {
-            //  For Version 2.0+, use the Linux's ACPI_RSDP_XCHECKSUM_LENGTH.
-            RSDP_XCHECKSUM_LENGTH
-        } else {
-            RSDP_V1_LENGTH
-        };
-
-        let bytes = unsafe { slice::from_raw_parts(self as *const Rsdp as *const u8, length) };
-        let sum = bytes.iter().fold(0u8, |sum, &byte| sum.wrapping_add(byte));
-
-        if sum != 0 {
+        // Always check the standard checksum over the first 20 bytes (ACPI 1.0 RSDP).
+        let standard_bytes = unsafe { slice::from_raw_parts(self as *const Rsdp as *const u8, RSDP_V1_LENGTH) };
+        let standard_sum = standard_bytes.iter().fold(0u8, |sum, &byte| sum.wrapping_add(byte));
+        if standard_sum != 0 {
             return Err(AcpiError::RsdpInvalidChecksum);
+        }
+
+        // For ACPI 2.0+ (revision >= 2), also check the extended checksum over 36 bytes.
+        if self.revision >= 2 {
+            let extended_bytes =
+                unsafe { slice::from_raw_parts(self as *const Rsdp as *const u8, RSDP_XCHECKSUM_LENGTH) };
+            let extended_sum = extended_bytes.iter().fold(0u8, |sum, &byte| sum.wrapping_add(byte));
+            if extended_sum != 0 {
+                return Err(AcpiError::RsdpInvalidChecksum);
+            }
         }
 
         Ok(())
