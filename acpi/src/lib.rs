@@ -500,3 +500,95 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rsdp::Rsdp;
+    use core::ptr::NonNull;
+    use std::{boxed::Box, vec::Vec};
+
+    /// Build a 36-byte RSDP with both checksums valid.
+    fn make_rsdp(revision: u8, rsdt_addr: u32, xsdt_addr: u64, length: u32) -> [u8; 36] {
+        let mut b = [0u8; 36];
+        b[0..8].copy_from_slice(b"RSD PTR ");
+        b[9..15].copy_from_slice(b"TEST01");
+        b[15] = revision;
+        b[16..20].copy_from_slice(&rsdt_addr.to_le_bytes());
+        b[20..24].copy_from_slice(&length.to_le_bytes());
+        b[24..32].copy_from_slice(&xsdt_addr.to_le_bytes());
+        // Standard 20-byte checksum
+        b[8] = 0;
+        let s = b[..20].iter().fold(0u8, |s, &x| s.wrapping_add(x));
+        b[8] = 0u8.wrapping_sub(s);
+        // Extended 36-byte checksum
+        b[32] = 0;
+        let s = b[..36].iter().fold(0u8, |s, &x| s.wrapping_add(x));
+        b[32] = 0u8.wrapping_sub(s);
+        b
+    }
+
+    /// Build an RSDT header with a valid checksum.
+    fn make_rsdt(length: u32) -> [u8; 36] {
+        let mut h = [0u8; 36];
+        h[0..4].copy_from_slice(b"RSDT");
+        h[4..8].copy_from_slice(&length.to_le_bytes());
+        h[8] = 1; // revision
+        h[10..16].copy_from_slice(b"TEST01");
+        h[16..24].copy_from_slice(b"TESTRSDT");
+        // Compute checksum
+        h[9] = 0;
+        let s = h[..length as usize].iter().fold(0u8, |s, &x| s.wrapping_add(x));
+        h[9] = 0u8.wrapping_sub(s);
+        h
+    }
+
+    #[derive(Clone)]
+    struct TestHandler {
+        mem: &'static [u8],
+    }
+
+    impl AcpiHandler for TestHandler {
+        unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T> {
+            assert!(physical_address + size <= self.mem.len());
+            let ptr = unsafe { self.mem.as_ptr().add(physical_address) } as *const T;
+            unsafe {
+                PhysicalMapping::new(
+                    physical_address,
+                    NonNull::new(ptr as *mut T).unwrap(),
+                    size,
+                    size,
+                    self.clone(),
+                )
+            }
+        }
+
+        fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {}
+    }
+
+    // --- Test 3: ACPI 2.0+ RSDP with zero XSDT address falls back to RSDT ---
+
+    #[test]
+    fn rev2_zero_xsdt_falls_back_to_rsdt() {
+        // Place RSDP at offset 0, RSDT at offset 0x100
+        let rsdt_offset = 0x100usize;
+        let buf_len = rsdt_offset + 36;
+
+        let mut buf: Vec<u8> = std::vec![0; buf_len];
+
+        // RSDP: revision 2, valid rsdt_address, xsdt_address = 0
+        let rsdp_bytes = make_rsdp(2, rsdt_offset as u32, 0, 36);
+        buf[0..36].copy_from_slice(&rsdp_bytes);
+
+        // RSDT header at rsdt_offset
+        let rsdt_bytes = make_rsdt(36); // header only, no entries
+        buf[rsdt_offset..rsdt_offset + 36].copy_from_slice(&rsdt_bytes);
+
+        let buf: &'static mut [u8] = Box::leak(buf.into_boxed_slice());
+        let handler = TestHandler { mem: buf };
+
+        // from_rsdp constructs AcpiTables using from_validated_rsdp internally
+        let result = unsafe { AcpiTables::from_rsdp(handler, 0) };
+        assert!(result.is_ok(), "Should fall back to RSDT when xsdt_address is 0");
+    }
+}
