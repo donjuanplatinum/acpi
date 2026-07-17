@@ -154,17 +154,17 @@ impl Rsdp {
     }
 
     pub fn length(&self) -> u32 {
-        assert!(self.revision > 0, "Tried to read extended RSDP field with ACPI Version 1.0");
+        assert!(self.revision >= 2, "Tried to read extended RSDP field with ACPI Version < 2.0");
         self.length
     }
 
     pub fn xsdt_address(&self) -> u64 {
-        assert!(self.revision > 0, "Tried to read extended RSDP field with ACPI Version 1.0");
+        assert!(self.revision >= 2, "Tried to read extended RSDP field with ACPI Version < 2.0");
         self.xsdt_address
     }
 
     pub fn ext_checksum(&self) -> u8 {
-        assert!(self.revision > 0, "Tried to read extended RSDP field with ACPI Version 1.0");
+        assert!(self.revision >= 2, "Tried to read extended RSDP field with ACPI Version < 2.0");
         self.ext_checksum
     }
 }
