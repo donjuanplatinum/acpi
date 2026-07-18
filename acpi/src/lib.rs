@@ -504,7 +504,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rsdp::Rsdp;
     use core::ptr::NonNull;
     use std::{boxed::Box, vec::Vec};
 

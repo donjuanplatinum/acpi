@@ -44,10 +44,10 @@ const RSDP_XCHECKSUM_LENGTH: usize = 36;
 /// The recommended way of locating the RSDP is to let the bootloader do it - Multiboot2 can pass a
 /// tag with the physical address of it. If this is not possible, a manual scan can be done.
 ///
-/// If `revision > 0`, (the hardware ACPI version is Version 2.0 or greater), the RSDP contains
-/// some new fields. For ACPI Version 1.0, these fields are not valid and should not be accessed.
-/// For ACPI Version 2.0+, `xsdt_address` should be used (truncated to `u32` on x86) instead of
-/// `rsdt_address`.
+/// If `revision >= 2`, the RSDP contains the extended fields introduced in ACPI 2.0. Revisions below 2 are
+/// handled as legacy RSDPs, matching Linux ACPICA, so these fields are not valid and should not be accessed.
+/// For ACPI Version 2.0+, `xsdt_address` should be used when it is non-zero (truncated to `u32` on x86);
+/// otherwise, `rsdt_address` should be used.
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct Rsdp {
